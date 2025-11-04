@@ -1,0 +1,9 @@
+# Python cache files - Python creates these when running your code
+__pycache__/
+*.pyc
+
+# API keys and sensitive data - NEVER commit these
+config/keys.py
+
+# Log files - Generated when your bot runs, can be large
+logs/*.log
