@@ -92,8 +92,8 @@ class MACEStrategy:
         if len(klines_data) < self.slow_period + self.signal_period:
             return TradingDecision(Action.HOLD, 0, current_price, reason="Insufficient data")
         
-        # Extract closing prices
-        closes = [float(kline[4]) for kline in klines_data]  # Close price is at index 4
+        # Extract prices from Horus API data format
+        closes = [float(kline['price']) for kline in klines_data]  # Price is in 'price' field
         
         # Calculate MACD
         macd_line, signal_line, histogram = self.calculate_macd(closes)
@@ -110,6 +110,11 @@ class MACEStrategy:
         
         # Generate trading signal
         decision = TradingDecision(Action.HOLD, 0.5, current_price)
+        
+        # Debug logging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"MACD Analysis - Current MACD: {current_macd:.4f}, Signal: {current_signal:.4f}, Previous MACD: {previous_macd:.4f}, Previous Signal: {previous_signal:.4f}")
         
         # MACD crosses above signal line - Buy signal
         if (previous_macd < previous_signal and current_macd > current_signal):

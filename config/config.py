@@ -10,6 +10,9 @@ class Config:
     ROOSTOO_SECRET = os.getenv('ROOSTOO_SECRET', 'your_secret_here')
     ROOSTOO_BASE_URL = os.getenv('ROOSTOO_BASE_URL', 'https://api.roostoo.com')
     
+    # Horus API Configuration
+    HORUS_API_KEY = os.getenv('HORUS_API_KEY', 'your_horus_api_key_here')
+    
     # Trading Configuration
     INITIAL_CASH = 10000  # Initial capital
     TRADE_PAIR = "BTC/USD"  # Trading pair

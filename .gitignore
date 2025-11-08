@@ -11,3 +11,7 @@ config/keys.py
 # Log files - Generated when your bot runs, can be large
 logs/*.log
 logs/*.jsonl
+logs/portfolio_history.json
+logs/portfolio_history.csv
+logs/trade_history.json
+logs/trade_history.csv

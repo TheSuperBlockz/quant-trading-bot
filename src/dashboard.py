@@ -15,6 +15,9 @@ class TradingDashboard:
         self.app = dash.Dash(__name__)
         self.setup_dashboard()
         self.logger = logging.getLogger(__name__)
+        
+        # Suppress werkzeug HTTP request logs
+        logging.getLogger('werkzeug').setLevel(logging.WARNING)
 
     def setup_dashboard(self):
         """Set up dashboard layout"""
@@ -190,9 +193,26 @@ class TradingDashboard:
         prices = []
 
         for entry in market_data:
-            if 'lastPrice' in entry:
+            # Try multiple field names for price
+            price = None
+            
+            # Check nested structure: entry['Data']['BTC/USD']['LastPrice']
+            if 'Data' in entry and isinstance(entry['Data'], dict):
+                for pair_key, pair_data in entry['Data'].items():
+                    if isinstance(pair_data, dict) and 'LastPrice' in pair_data:
+                        price = pair_data['LastPrice']
+                        break
+            
+            # Fallback to top-level fields
+            if price is None:
+                for field in ['lastPrice', 'LastPrice', 'last_price', 'price']:
+                    if field in entry:
+                        price = entry[field]
+                        break
+            
+            if price is not None:
                 timestamps.append(pd.to_datetime(entry['timestamp']))
-                prices.append(entry['lastPrice'])
+                prices.append(float(price))
 
         if timestamps and prices:
             fig.add_trace(go.Scatter(
@@ -213,17 +233,20 @@ class TradingDashboard:
 
     def create_trades_chart(self, trade_data, portfolio_data):
         """Create trade markers chart"""
-        if not trade_data or not portfolio_data:
-            return go.Figure()
+        fig = go.Figure()
+        
+        # Set layout first (even for empty chart)
+        fig.update_layout(
+            title="Portfolio Value with Trade Markers",
+            xaxis_title="Time",
+            yaxis_title="Portfolio Value (USD)"
+        )
+        
+        if not portfolio_data:
+            return fig
 
         portfolio_df = pd.DataFrame(portfolio_data)
         portfolio_df['timestamp'] = pd.to_datetime(portfolio_df['timestamp'])
-
-        trade_df = pd.DataFrame(trade_data)
-        if not trade_df.empty:
-            trade_df['timestamp'] = pd.to_datetime(trade_df['timestamp'])
-
-        fig = go.Figure()
 
         # Portfolio value
         fig.add_trace(go.Scatter(
@@ -234,34 +257,34 @@ class TradingDashboard:
             line=dict(color='blue', width=2)
         ))
 
-        # Buy trade markers
-        if not trade_df.empty and 'action' in trade_df.columns:
-            buy_trades = trade_df[trade_df['action'] == 'BUY']
-            if not buy_trades.empty:
-                fig.add_trace(go.Scatter(
-                    x=buy_trades['timestamp'],
-                    y=[portfolio_df['total_value'].max() * 0.95] * len(buy_trades),
-                    mode='markers',
-                    name='Buy',
-                    marker=dict(color='green', size=12, symbol='triangle-up')
-                ))
+        # Add trade markers if we have trade data
+        if trade_data:
+            trade_df = pd.DataFrame(trade_data)
+            if not trade_df.empty:
+                trade_df['timestamp'] = pd.to_datetime(trade_df['timestamp'])
+                
+                # Buy trade markers
+                if 'action' in trade_df.columns:
+                    buy_trades = trade_df[trade_df['action'] == 'BUY']
+                    if not buy_trades.empty:
+                        fig.add_trace(go.Scatter(
+                            x=buy_trades['timestamp'],
+                            y=[portfolio_df['total_value'].max() * 0.95] * len(buy_trades),
+                            mode='markers',
+                            name='Buy',
+                            marker=dict(color='green', size=12, symbol='triangle-up')
+                        ))
 
-            # Sell trade markers
-            sell_trades = trade_df[trade_df['action'] == 'SELL']
-            if not sell_trades.empty:
-                fig.add_trace(go.Scatter(
-                    x=sell_trades['timestamp'],
-                    y=[portfolio_df['total_value'].min() * 1.05] * len(sell_trades),
-                    mode='markers',
-                    name='Sell',
-                    marker=dict(color='red', size=12, symbol='triangle-down')
-                ))
-
-        fig.update_layout(
-            title="Portfolio Value with Trade Markers",
-            xaxis_title="Time",
-            yaxis_title="Portfolio Value (USD)"
-        )
+                    # Sell trade markers
+                    sell_trades = trade_df[trade_df['action'] == 'SELL']
+                    if not sell_trades.empty:
+                        fig.add_trace(go.Scatter(
+                            x=sell_trades['timestamp'],
+                            y=[portfolio_df['total_value'].min() * 1.05] * len(sell_trades),
+                            mode='markers',
+                            name='Sell',
+                            marker=dict(color='red', size=12, symbol='triangle-down')
+                        ))
 
         return fig
 

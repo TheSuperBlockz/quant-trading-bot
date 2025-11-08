@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Dict  #SUGGESTED EDIT FROM COPILOT
 from trading_logger import TradingLogger
 from roostoo_client import RoostooClient
+from horus_client import HorusClient
 from strategy import MACEStrategy, Action
 from config.config import Config
 
@@ -21,6 +22,7 @@ class TradingBot:
         self.config = Config()
         self.logger = TradingLogger()
         self.roostoo = RoostooClient()
+        self.horus = HorusClient()
         self.strategy = MACEStrategy(
             fast_period=self.config.FAST_EMA_PERIOD,
             slow_period=self.config.SLOW_EMA_PERIOD,
@@ -46,19 +48,39 @@ class TradingBot:
     def get_portfolio_value(self, balance_data: Dict, current_prices: Dict) -> float:
         """Calculate total portfolio value"""
         try:
-            cash = balance_data.get('USD', {}).get('free', 0)
+            # Validate input types
+            if not isinstance(balance_data, dict):
+                raise ValueError(f"Balance data must be a dictionary, got {type(balance_data)}")
+            if not isinstance(current_prices, dict):
+                raise ValueError(f"Current prices must be a dictionary, got {type(current_prices)}")
+            
+            # Safely get USD balance
+            usd_balance = balance_data.get('USD', {})
+            if not isinstance(usd_balance, dict):
+                raise ValueError(f"USD balance must be a dictionary, got {type(usd_balance)}")
+            
+            cash = float(usd_balance.get('free', 0))
             total_value = cash
             
             # Calculate holdings value
             for coin, balance in balance_data.items():
-                if coin != 'USD' and balance.get('free', 0) > 0:
-                    coin_value = balance['free'] * current_prices.get(coin, 0)
+                if coin == 'USD' or not isinstance(balance, dict):
+                    continue
+                    
+                try:
+                    free_amount = float(balance.get('free', 0))
+                    coin_price = float(current_prices.get(coin, 0))
+                    coin_value = free_amount * coin_price
                     total_value += coin_value
+                except (TypeError, ValueError) as e:
+                    self.logger.logger.error(f"Error calculating value for {coin}: {e}")
+                    continue
             
             return total_value
         except Exception as e:
             self.logger.logger.error(f"Failed to calculate portfolio value: {e}")
-            return 0
+            # Re-raise the exception to be handled by the main loop
+            raise
     
     def execute_trade(self, decision, balance_data: Dict):
         """Execute trade"""
@@ -147,22 +169,30 @@ class TradingBot:
                 # Log market data
                 self.logger.log_market_data(market_data)
                 
-                # 2. Get K-line data
-                klines = self.roostoo.get_klines(
-                    pair=self.config.TRADE_PAIR,
-                    interval='1m',
-                    limit=100
+                # 2. Get historical price data from Horus
+                base_currency = self.config.TRADE_PAIR.split('/')[0]  # Extract BTC from BTC/USD
+                end_time = int(time.time())
+                start_time = end_time - (15 * 60 * 100)  # Get last 100 15-minute candles
+                
+                klines = self.horus.get_price_history(
+                    symbol=base_currency,
+                    interval='15m',
+                    start=start_time,
+                    end=end_time
                 )
                 
                 if 'error' in klines or not klines:
-                    self.logger.logger.error("Failed to get K-line data")
+                    self.logger.logger.error("Failed to get historical price data from Horus")
                     time.sleep(30)
                     continue
                 
-                # 3. Get current price
-                current_price = float(market_data.get('lastPrice', 0))
-                if current_price == 0:
-                    self.logger.logger.error("Failed to get price")
+                # 3. Get current price from the most recent Horus data
+                if klines and isinstance(klines, list) and len(klines) > 0:
+                    # Get the most recent price from Horus data
+                    current_price = float(klines[-1]['price'])
+                    self.logger.logger.info(f"Current price from Horus: {current_price}")
+                else:
+                    self.logger.logger.error("Failed to get price from Horus data")
                     time.sleep(30)
                     continue
                 
@@ -187,13 +217,26 @@ class TradingBot:
                 
                 # 5. Get account balance
                 balance_data = self.roostoo.get_account_balance()
-                if 'error' in balance_data:
-                    self.logger.logger.error("Failed to get account balance")
+                # Log the actual response for debugging
+                self.logger.logger.debug(f"Raw balance data response: {balance_data}")
+                
+                if 'error' in balance_data or not isinstance(balance_data, dict):
+                    self.logger.logger.error(f"Invalid balance data received: {balance_data}")
+                    time.sleep(30)
+                    continue
+                
+                # Validate balance data structure before proceeding
+                required_fields = ['USD', 'BTC']
+                if not all(field in balance_data for field in required_fields):
+                    self.logger.logger.error(f"Balance data missing required fields. Fields present: {balance_data.keys()}")
                     time.sleep(30)
                     continue
                 
                 # 6. Log portfolio status
-                portfolio_value = self.get_portfolio_value(balance_data, {self.config.TRADE_PAIR.split('/')[0]: current_price})
+                current_prices = {
+                    self.config.TRADE_PAIR.split('/')[0]: current_price  # e.g., "BTC": 102480.38
+                }
+                portfolio_value = self.get_portfolio_value(balance_data, current_prices)
                 portfolio_data = {
                     'total_value': portfolio_value,
                     'cash_value': balance_data.get('USD', {}).get('free', 0),
