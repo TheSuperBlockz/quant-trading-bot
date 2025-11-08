@@ -304,7 +304,7 @@ class TradingDashboard:
     def run(self):
         """Run dashboard"""
         self.logger.info(f"Starting dashboard: http://localhost:{self.port}")
-        self.app.run_server(host='0.0.0.0', port=self.port, debug=False)
+        self.app.run(host='0.0.0.0', port=self.port, debug=False)
 
 
 def start_dashboard():
