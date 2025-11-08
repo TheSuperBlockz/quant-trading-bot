@@ -1,0 +1,22 @@
+# API and HTTP
+requests>=2.31.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.21.0
+
+# Dashboard and Visualization
+dash>=2.14.0
+plotly>=5.18.0
+
+# Configuration
+python-dotenv>=1.0.0
+
+# Type Hints
+typing-extensions>=4.8.0
+
+# Date and Time
+python-dateutil>=2.8.2
+
+# Logging
+logging>=0.5.1.2
