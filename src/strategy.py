@@ -19,7 +19,7 @@ class TradingDecision:
 
 class MACEStrategy:
     """
-    Moving Average Convergence Divergence (MACD) with Exponential smoothing 策略
+    Moving Average Convergence Divergence (MACD) with Exponential smoothing strategy
     """
     
     def __init__(self, fast_period=12, slow_period=26, signal_period=9):
@@ -30,14 +30,14 @@ class MACEStrategy:
         self.previous_signal = None
         
     def calculate_ema(self, prices: List[float], period: int) -> List[float]:
-        """计算指数移动平均线"""
+        """Calculate Exponential Moving Average"""
         if len(prices) < period:
             return [np.nan] * len(prices)
             
         ema = []
         multiplier = 2 / (period + 1)
         
-        # 第一个EMA是简单移动平均
+        # First EMA value is Simple Moving Average (SMA)
         sma = sum(prices[:period]) / period
         ema.extend([sma] * (period - 1))
         
@@ -49,11 +49,11 @@ class MACEStrategy:
         return ema
     
     def calculate_macd(self, prices: List[float]) -> Tuple[List[float], List[float], List[float]]:
-        """计算MACD指标"""
+        """Calculate MACD indicator"""
         fast_ema = self.calculate_ema(prices, self.fast_period)
         slow_ema = self.calculate_ema(prices, self.slow_period)
         
-        # 计算MACD线
+        # Calculate MACD line
         macd_line = []
         for fast, slow in zip(fast_ema, slow_ema):
             if pd.isna(fast) or pd.isna(slow):
@@ -61,14 +61,14 @@ class MACEStrategy:
             else:
                 macd_line.append(fast - slow)
         
-        # 计算信号线
+        # Calculate signal line
         signal_line = self.calculate_ema([x for x in macd_line if not pd.isna(x)], self.signal_period)
         
-        # 对齐长度
+        # Align lengths
         nan_padding = [np.nan] * (len(macd_line) - len(signal_line))
         signal_line = nan_padding + signal_line
         
-        # 计算柱状图
+        # Calculate histogram
         histogram = []
         for macd, signal in zip(macd_line, signal_line):
             if pd.isna(macd) or pd.isna(signal):
@@ -80,25 +80,25 @@ class MACEStrategy:
     
     def analyze(self, klines_data: List, current_price: float) -> TradingDecision:
         """
-        分析市场并生成交易决策
-        
-        参数:
-            klines_data: K线数据 [开盘时间, 开盘价, 最高价, 最低价, 收盘价, 成交量]
-            current_price: 当前价格
-            
-        返回:
-            TradingDecision: 交易决策
+        Analyze market and generate trading decision
+
+        Parameters:
+            klines_data: K-line data [open_time, open, high, low, close, volume]
+            current_price: Current price
+
+        Returns:
+            TradingDecision: Trading decision
         """
         if len(klines_data) < self.slow_period + self.signal_period:
-            return TradingDecision(Action.HOLD, 0, current_price, reason="数据不足")
+            return TradingDecision(Action.HOLD, 0, current_price, reason="Insufficient data")
         
-        # 提取收盘价
-        closes = [float(kline[4]) for kline in klines_data]  # 收盘价在第5个位置
+        # Extract closing prices
+        closes = [float(kline[4]) for kline in klines_data]  # Close price is at index 4
         
-        # 计算MACD
+        # Calculate MACD
         macd_line, signal_line, histogram = self.calculate_macd(closes)
         
-        # 获取最新值
+        # Get latest values
         current_macd = macd_line[-1]
         current_signal = signal_line[-1]
         previous_macd = macd_line[-2] if len(macd_line) > 1 else None
@@ -106,34 +106,34 @@ class MACEStrategy:
         
         if (pd.isna(current_macd) or pd.isna(current_signal) or 
             pd.isna(previous_macd) or pd.isna(previous_signal)):
-            return TradingDecision(Action.HOLD, 0, current_price, reason="MACD计算不完整")
+            return TradingDecision(Action.HOLD, 0, current_price, reason="MACD calculation incomplete")
         
-        # 生成交易信号
+        # Generate trading signal
         decision = TradingDecision(Action.HOLD, 0.5, current_price)
         
-        # MACD上穿信号线 - 买入信号
+        # MACD crosses above signal line - Buy signal
         if (previous_macd < previous_signal and current_macd > current_signal):
             decision.action = Action.BUY
             decision.confidence = 0.7
-            decision.reason = "MACD金叉，买入信号"
+            decision.reason = "MACD golden cross, buy signal"
             
-        # MACD下穿信号线 - 卖出信号
+        # MACD crosses below signal line - Sell signal
         elif (previous_macd > previous_signal and current_macd < current_signal):
             decision.action = Action.SELL
             decision.confidence = 0.7
-            decision.reason = "MACD死叉，卖出信号"
+            decision.reason = "MACD death cross, sell signal"
             
-        # 零轴之上的强势信号
+        # Strong signal above zero line
         elif current_macd > 0 and current_macd > current_signal:
             decision.action = Action.BUY
             decision.confidence = 0.6
-            decision.reason = "MACD在零轴上方且上涨"
+            decision.reason = "MACD above zero line and rising"
             
-        # 零轴之下的弱势信号
+        # Weak signal below zero line
         elif current_macd < 0 and current_macd < current_signal:
             decision.action = Action.SELL
             decision.confidence = 0.6
-            decision.reason = "MACD在零轴下方且下跌"
+            decision.reason = "MACD below zero line and falling"
         
         self.previous_macd = current_macd
         self.previous_signal = current_signal
@@ -141,10 +141,10 @@ class MACEStrategy:
         return decision
     
     def calculate_position_size(self, balance: float, price: float, confidence: float) -> float:
-        """根据信心度计算仓位大小"""
-        base_size = balance * 0.1  # 基础仓位10%
+        """Calculate position size based on confidence level"""
+        base_size = balance * 0.1  # Base position 10%
         adjusted_size = base_size * confidence
-        max_trade_value = balance * 0.2  # 最大单次交易20%
+        max_trade_value = balance * 0.2  # Maximum single trade 20%
         
         position_size = min(adjusted_size, max_trade_value)
         quantity = position_size / price

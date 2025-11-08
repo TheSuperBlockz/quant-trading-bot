@@ -34,22 +34,22 @@ class TradingBot:
             self.start_dashboard()
     
     def start_dashboard(self):
-        """启动仪表盘（仅本地测试）"""
+        """Start dashboard (local testing only)"""
         try:
             from dashboard import start_dashboard
             self.dashboard_thread = threading.Thread(target=start_dashboard, daemon=True)
             self.dashboard_thread.start()
-            self.logger.logger.info("仪表盘启动: http://localhost:8050")
+            self.logger.logger.info("Dashboard started: http://localhost:8050")
         except Exception as e:
-            self.logger.logger.error(f"启动仪表盘失败: {e}")
+            self.logger.logger.error(f"Failed to start dashboard: {e}")
     
     def get_portfolio_value(self, balance_data: Dict, current_prices: Dict) -> float:
-        """计算投资组合总价值"""
+        """Calculate total portfolio value"""
         try:
             cash = balance_data.get('USD', {}).get('free', 0)
             total_value = cash
             
-            # 计算持仓价值
+            # Calculate holdings value
             for coin, balance in balance_data.items():
                 if coin != 'USD' and balance.get('free', 0) > 0:
                     coin_value = balance['free'] * current_prices.get(coin, 0)
@@ -57,27 +57,27 @@ class TradingBot:
             
             return total_value
         except Exception as e:
-            self.logger.logger.error(f"计算投资组合价值失败: {e}")
+            self.logger.logger.error(f"Failed to calculate portfolio value: {e}")
             return 0
     
     def execute_trade(self, decision, balance_data: Dict):
-        """执行交易"""
+        """Execute trade"""
         try:
             symbol = self.config.TRADE_PAIR
             base_currency = symbol.split('/')[0]  # BTC
             quote_currency = symbol.split('/')[1]  # USD
             
             if decision.action == Action.BUY:
-                # 计算购买数量
+                # Calculate buy quantity
                 available_cash = balance_data.get(quote_currency, {}).get('free', 0)
                 max_trade_value = available_cash * self.config.MAX_POSITION_SIZE
                 quantity = max_trade_value / decision.price
                 
-                if quantity * decision.price < 10:  # 最小交易金额检查
-                    self.logger.logger.info("交易金额太小，跳过")
+                if quantity * decision.price < 10:  # Minimum trade amount check
+                    self.logger.logger.info("Trade amount too small, skipping")
                     return
                 
-                # 执行买入
+                # Execute buy
                 result = self.roostoo.place_order(
                     symbol=symbol,
                     side='BUY',
@@ -96,15 +96,15 @@ class TradingBot:
                     self.logger.log_trade(trade_data)
                     
             elif decision.action == Action.SELL:
-                # 计算卖出数量
+                # Calculate sell quantity
                 available_coin = balance_data.get(base_currency, {}).get('free', 0)
                 quantity = available_coin * self.config.MAX_POSITION_SIZE
                 
-                if quantity * decision.price < 10:  # 最小交易金额检查
-                    self.logger.logger.info("交易金额太小，跳过")
+                if quantity * decision.price < 10:  # Minimum trade amount check
+                    self.logger.logger.info("Trade amount too small, skipping")
                     return
                 
-                # 执行卖出
+                # Execute sell
                 result = self.roostoo.place_order(
                     symbol=symbol,
                     side='SELL',
@@ -123,29 +123,29 @@ class TradingBot:
                     self.logger.log_trade(trade_data)
                     
         except Exception as e:
-            self.logger.logger.error(f"执行交易失败: {e}")
+            self.logger.logger.error(f"Failed to execute trade: {e}")
     
     def run(self):
-        """主交易循环"""
-        self.logger.logger.info("启动交易机器人...")
+        """Main trading loop"""
+        self.logger.logger.info("Starting trading bot...")
         
         iteration = 0
         while self.running:
             try:
                 iteration += 1
-                self.logger.logger.info(f"第 {iteration} 次迭代开始...")
+                self.logger.logger.info(f"Starting iteration {iteration}...")
                 
-                # 1. 获取市场数据
+                # 1. Get market data
                 market_data = self.roostoo.get_market_data(self.config.TRADE_PAIR)
                 if 'error' in market_data:
-                    self.logger.logger.error(f"获取市场数据失败: {market_data['error']}")
+                    self.logger.logger.error(f"Failed to get market data: {market_data['error']}")
                     time.sleep(30)
                     continue
                 
-                # 记录市场数据
+                # Log market data
                 self.logger.log_market_data(market_data)
                 
-                # 2. 获取K线数据
+                # 2. Get K-line data
                 klines = self.roostoo.get_klines(
                     symbol=self.config.TRADE_PAIR,
                     interval='1m',
@@ -153,21 +153,21 @@ class TradingBot:
                 )
                 
                 if 'error' in klines or not klines:
-                    self.logger.logger.error("获取K线数据失败")
+                    self.logger.logger.error("Failed to get K-line data")
                     time.sleep(30)
                     continue
                 
-                # 3. 获取当前价格
+                # 3. Get current price
                 current_price = float(market_data.get('lastPrice', 0))
                 if current_price == 0:
-                    self.logger.logger.error("获取价格失败")
+                    self.logger.logger.error("Failed to get price")
                     time.sleep(30)
                     continue
                 
-                # 4. 策略分析
+                # 4. Strategy analysis
                 decision = self.strategy.analyze(klines, current_price)
                 
-                # 记录策略信号
+                # Log strategy signal
                 signal_data = {
                     'action': decision.action.value,
                     'confidence': decision.confidence,
@@ -177,20 +177,20 @@ class TradingBot:
                 self.logger.log_strategy_signal(signal_data)
                 
                 self.logger.logger.info(
-                    f"策略决策: {decision.action.value}, "
-                    f"信心度: {decision.confidence:.2f}, "
-                    f"价格: {current_price:.2f}, "
-                    f"原因: {decision.reason}"
+                    f"Strategy decision: {decision.action.value}, "
+                    f"Confidence: {decision.confidence:.2f}, "
+                    f"Price: {current_price:.2f}, "
+                    f"Reason: {decision.reason}"
                 )
                 
-                # 5. 获取账户余额
+                # 5. Get account balance
                 balance_data = self.roostoo.get_account_balance()
                 if 'error' in balance_data:
-                    self.logger.logger.error("获取账户余额失败")
+                    self.logger.logger.error("Failed to get account balance")
                     time.sleep(30)
                     continue
                 
-                # 6. 记录投资组合状态
+                # 6. Log portfolio status
                 portfolio_value = self.get_portfolio_value(balance_data, {self.config.TRADE_PAIR.split('/')[0]: current_price})
                 portfolio_data = {
                     'total_value': portfolio_value,
@@ -201,23 +201,23 @@ class TradingBot:
                 }
                 self.logger.log_portfolio_update(portfolio_data)
                 
-                # 7. 执行交易决策
+                # 7. Execute trading decision
                 if decision.action != Action.HOLD:
                     self.execute_trade(decision, balance_data)
                 
-                # 8. 等待下一次迭代
-                self.logger.logger.info(f"等待 {self.config.TRADE_INTERVAL} 秒...")
+                # 8. Wait for next iteration
+                self.logger.logger.info(f"Waiting {self.config.TRADE_INTERVAL} seconds...")
                 time.sleep(self.config.TRADE_INTERVAL)
                 
             except KeyboardInterrupt:
-                self.logger.logger.info("用户中断，停止机器人...")
+                self.logger.logger.info("User interrupted, stopping bot...")
                 self.running = False
                 
             except Exception as e:
-                self.logger.logger.error(f"主循环错误: {e}")
-                time.sleep(60)  # 出错时等待更久
+                self.logger.logger.error(f"Main loop error: {e}")
+                time.sleep(60)  # Wait longer on error
 
 if __name__ == "__main__":
-    # 本地测试启用仪表盘，AWS部署时禁用
+    # Enable dashboard for local testing; disable for AWS deployment
     bot = TradingBot(enable_dashboard=True)
     bot.run()
