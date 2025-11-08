@@ -45,18 +45,26 @@ An automated trading bot using MACD (Moving Average Convergence Divergence) stra
    ```
 
 4. **Run the Trading Bot**
-   ```bash
-   # Navigate to the src directory
-   cd src
    
-   # Run the bot
-   python main.py
+   **For Testing (Paper Trading Mode):**
+   ```bash
+   # Run with simulated balance ($5M USD + 50 BTC)
+   python paper_trading.py
+   ```
+   
+   **For Real Trading (Competition/Live):**
+   ```bash
+   # Run with actual Roostoo API balance
+   python src/main.py
    ```
    
    **Windows:**
    ```powershell
-   cd src
-   python main.py
+   # Paper trading mode
+   python paper_trading.py
+   
+   # Real trading mode
+   python src/main.py
    ```
 
 5. **View the Dashboard (Optional)**
@@ -85,29 +93,33 @@ pip install --upgrade -r requirements.txt
 ### Root Files
 - `README.md` - This file: project documentation and setup instructions
 - `requirements.txt` - Python dependencies required to run the trading bot
+- `paper_trading.py` - **Paper trading mode** with simulated balance for testing
 - `.env.example` - Template for environment variables (API keys)
 - `.gitignore` - Specifies which files Git should ignore
 
 ### Configuration
 - `config/config.py` - Trading parameters, strategy settings, and bot configuration
 - `config/keys_template.py` - Alternative template showing required API key structure
+- `config/keys.py` - User's actual API keys (not tracked in Git)
 
 ### Source Code (`src/`)
-- `main.py` - Main entry point that runs the trading bot loop
+- `main.py` - **Real trading mode**: Main entry point using actual Roostoo API balance
 - `roostoo_client.py` - Handles all API communication with Roostoo exchange (v3 API)
-- `horus_client.py` - Fetches historical price data from Horus API
+- `horus_client.py` - Fetches historical price data from Horus API for MACD calculations
 - `strategy.py` - MACD trading strategy implementation and signal generation
-- `trading_logger.py` - Logging system for trades, portfolio, and market data
-- `dashboard.py` - Real-time web dashboard for monitoring bot performance
+- `trading_logger.py` - Logging system for trades, portfolio, and market data (saves to project root `/logs`)
+- `dashboard.py` - Real-time web dashboard for monitoring bot performance (port 8050)
+
+### Testing (`tests/`)
+- `test_roostoo_api.py` - Interactive API testing tool to verify Roostoo endpoints and responses
 
 ### Generated Data (`logs/`)
-Auto-created directory containing:
-- `trading_bot.log` - Main application log file
+Auto-created directory in project root containing:
+- `trading_bot.log` - Main application log file with all bot activity
 - `trade_history.json/csv` - Record of all executed trades
-- `portfolio_history.json/csv` - Portfolio value over time
-- `market_data.jsonl` - Historical market data snapshots
-- `strategy_signals.jsonl` - All strategy decisions (BUY/SELL/HOLD)
+- `portfolio_history.json/csv` - Portfolio value snapshots over time
+- `market_data.jsonl` - Historical market data from Roostoo ticker API
+- `strategy_signals.jsonl` - All strategy decisions (BUY/SELL/HOLD) with reasoning
 
 ### Supporting Directories
-- `tests/` - Unit tests and strategy validation code
 - `deploy/` - Deployment scripts for cloud setup (AWS, etc.)
