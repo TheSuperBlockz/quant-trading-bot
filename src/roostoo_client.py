@@ -22,27 +22,30 @@ class RoostooClient:
             hashlib.sha256
         ).hexdigest()
     
-    def _make_request(self, method: str, endpoint: str, params: Optional[Dict] = None) -> Dict:
+    def _make_request(self, method: str, endpoint: str, params: Optional[Dict] = None, auth_required: bool = False) -> Dict:
         """Send API request"""
         url = f"{self.base_url}{endpoint}"
         
         if params is None:
             params = {}
             
-        # Add common parameters
-        params.update({
-            'api_key': self.api_key,
-            'timestamp': int(time.time() * 1000)
-        })
-        
-        # Generate signature
-        params['sign'] = self._generate_signature(params)
+        if auth_required:
+            # Add timestamp for authenticated endpoints
+            params['timestamp'] = int(time.time() * 1000)
+            
+            # Generate signature and set headers
+            headers = {
+                'RST-API-KEY': self.api_key,
+                'MSG-SIGNATURE': self._generate_signature(params)
+            }
+        else:
+            headers = {}
         
         try:
             if method.upper() == 'GET':
-                response = requests.get(url, params=params, timeout=10)
+                response = requests.get(url, params=params, headers=headers, timeout=10)
             elif method.upper() == 'POST':
-                response = requests.post(url, data=params, timeout=10)
+                response = requests.post(url, data=params, headers=headers, timeout=10)
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
                 
@@ -53,42 +56,69 @@ class RoostooClient:
             print(f"API request error: {e}")
             return {'error': str(e)}
     
+    def get_server_time(self) -> Dict:
+        """Get server time"""
+        return self._make_request('GET', '/v3/serverTime')
+        
+    def get_exchange_info(self) -> Dict:
+        """Get exchange information"""
+        return self._make_request('GET', '/v3/exchangeInfo')
+    
     def get_account_balance(self) -> Dict:
         """Get account balance"""
-        return self._make_request('GET', '/api/v1/account/balance')
+        return self._make_request('GET', '/v3/balance', auth_required=True)
     
-    def get_market_data(self, symbol: str) -> Dict:
+    def get_market_data(self, pair: str = None) -> Dict:
         """Get market data"""
-        params = {'symbol': symbol}
-        return self._make_request('GET', '/api/v1/market/ticker', params)
+        params = {}
+        if pair:
+            params['pair'] = pair
+        params['timestamp'] = int(time.time())
+        return self._make_request('GET', '/v3/ticker', params)
     
-    def get_klines(self, symbol: str, interval: str = '1m', limit: int = 100) -> List:
-        """Get K-line (candlestick) data"""
-        params = {
-            'symbol': symbol,
-            'interval': interval,
-            'limit': limit
-        }
-        return self._make_request('GET', '/api/v1/market/klines', params)
-    
-    def place_order(self, symbol: str, side: str, quantity: float, order_type: str = 'MARKET') -> Dict:
+    def place_order(self, coin: str, side: str, quantity: float, price: float = None) -> Dict:
         """Place a new order"""
         params = {
-            'symbol': symbol,
+            'pair': f"{coin}/USD",
             'side': side.upper(),
-            'type': order_type.upper(),
             'quantity': quantity
         }
-        return self._make_request('POST', '/api/v1/trade/order', params)
+        
+        if not price:
+            params['type'] = 'MARKET'
+        else:
+            params['type'] = 'LIMIT'
+            params['price'] = price
+            
+        return self._make_request('POST', '/v3/place_order', params, auth_required=True)
     
-    def get_open_orders(self, symbol: str = None) -> List:
+    def get_open_orders(self, pair: str = None) -> Dict:
         """Get current open orders"""
         params = {}
-        if symbol:
-            params['symbol'] = symbol
-        return self._make_request('GET', '/api/v1/trade/openOrders', params)
+        if pair:
+            params['pair'] = pair
+        params['pending_only'] = True
+        return self._make_request('POST', '/v3/query_order', params, auth_required=True)
     
-    def cancel_order(self, order_id: str) -> Dict:
+    def cancel_order(self, order_id: str = None, pair: str = None) -> Dict:
         """Cancel an order"""
-        params = {'order_id': order_id}
-        return self._make_request('POST', '/api/v1/trade/cancel', params)
+        params = {}
+        if order_id:
+            params['order_id'] = order_id
+        if pair:
+            params['pair'] = pair
+        return self._make_request('POST', '/v3/cancel_order', params, auth_required=True)
+        
+    def get_pending_count(self) -> Dict:
+        """Get number of pending orders"""
+        return self._make_request('GET', '/v3/pending_count', auth_required=True)
+        
+    def get_klines(self, pair: str, interval: str = '1m', limit: int = 100) -> List:
+        """Get K-line (candlestick) data"""
+        params = {
+            'pair': pair,
+            'interval': interval,
+            'limit': limit,
+            'timestamp': int(time.time())
+        }
+        return self._make_request('GET', '/v3/klines', params)

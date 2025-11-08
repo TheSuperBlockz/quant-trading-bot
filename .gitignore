@@ -2,8 +2,12 @@
 __pycache__/
 *.pyc
 
-# API keys and sensitive data - NEVER commit these
+# Environment variables and sensitive data - NEVER commit these
+.env
+.env.*
+!.env.example
 config/keys.py
 
 # Log files - Generated when your bot runs, can be large
 logs/*.log
+logs/*.jsonl

@@ -78,8 +78,9 @@ class TradingBot:
                     return
                 
                 # Execute buy
+                base_currency = symbol.split('/')[0]  # Get the coin symbol (e.g., BTC)
                 result = self.roostoo.place_order(
-                    symbol=symbol,
+                    coin=base_currency,
                     side='BUY',
                     quantity=quantity
                 )
@@ -105,8 +106,9 @@ class TradingBot:
                     return
                 
                 # Execute sell
+                base_currency = symbol.split('/')[0]  # Get the coin symbol (e.g., BTC)
                 result = self.roostoo.place_order(
-                    symbol=symbol,
+                    coin=base_currency,
                     side='SELL',
                     quantity=quantity
                 )
@@ -147,7 +149,7 @@ class TradingBot:
                 
                 # 2. Get K-line data
                 klines = self.roostoo.get_klines(
-                    symbol=self.config.TRADE_PAIR,
+                    pair=self.config.TRADE_PAIR,
                     interval='1m',
                     limit=100
                 )
