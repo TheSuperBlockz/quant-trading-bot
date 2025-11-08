@@ -8,21 +8,24 @@ from typing import Dict #SUGGESTED EDIT FROM COPILOT
 
 class TradingLogger:
     def __init__(self):
+        # Get project root directory (parent of src/)
+        self.project_root = Path(__file__).resolve().parents[1]
+        self.logs_dir = self.project_root / 'logs'
         self.setup_logging()
         self.trade_history = []
         self.portfolio_history = []
         
     def setup_logging(self):
         """Set up logging system"""
-        # Create logs directory
-        os.makedirs('logs', exist_ok=True)
+        # Create logs directory in project root
+        self.logs_dir.mkdir(exist_ok=True)
         
         # Set log format
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler('logs/trading_bot.log'),
+                logging.FileHandler(self.logs_dir / 'trading_bot.log'),
                 logging.StreamHandler()
             ]
         )
@@ -39,12 +42,12 @@ class TradingLogger:
         self.trade_history.append(trade_entry)
         
         # Save to JSON file
-        with open('logs/trade_history.json', 'w') as f:
+        with open(self.logs_dir / 'trade_history.json', 'w') as f:
             json.dump(self.trade_history, f, indent=2)
             
         # Save to CSV file
         df = pd.DataFrame(self.trade_history)
-        df.to_csv('logs/trade_history.csv', index=False)
+        df.to_csv(self.logs_dir / 'trade_history.csv', index=False)
 
         self.logger.info(f"Trade executed: {trade_data}")
     
@@ -58,12 +61,12 @@ class TradingLogger:
         self.portfolio_history.append(portfolio_entry)
         
         # Save to JSON file
-        with open('logs/portfolio_history.json', 'w') as f:
+        with open(self.logs_dir / 'portfolio_history.json', 'w') as f:
             json.dump(self.portfolio_history, f, indent=2)
             
         # Save to CSV file
         df = pd.DataFrame(self.portfolio_history)
-        df.to_csv('logs/portfolio_history.csv', index=False)
+        df.to_csv(self.logs_dir / 'portfolio_history.csv', index=False)
     
     def log_market_data(self, market_data: Dict):
         """Log market data"""
@@ -74,7 +77,7 @@ class TradingLogger:
         
         # Save to JSONL file
         try:
-            with open('logs/market_data.jsonl', 'a') as f:
+            with open(self.logs_dir / 'market_data.jsonl', 'a') as f:
                 f.write(json.dumps(market_entry) + '\n')
         except Exception as e:
             self.logger.error(f"Failed to log market data: {e}")
@@ -88,7 +91,7 @@ class TradingLogger:
         
         # Save to JSONL file
         try:
-            with open('logs/strategy_signals.jsonl', 'a') as f:
+            with open(self.logs_dir / 'strategy_signals.jsonl', 'a') as f:
                 f.write(json.dumps(signal_entry) + '\n')
         except Exception as e:
             self.logger.error(f"Failed to log strategy signal: {e}")

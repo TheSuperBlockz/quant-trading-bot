@@ -20,18 +20,21 @@ class HorusClient:
         }
         
         try:
-            print(f"Making request to: {url}")
-            print(f"With params: {params}")
-            print(f"With headers: {headers}")
             response = requests.get(url, params=params, headers=headers, timeout=10)
-            print(f"Response status: {response.status_code}")
-            print(f"Response content: {response.text}")
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+            
+            # Log summarized response instead of full data
+            if isinstance(data, list):
+                print(f"Horus API: Retrieved {len(data)} data points from {endpoint}")
+            else:
+                print(f"Horus API: Response from {endpoint} - Status: {response.status_code}")
+            
+            return data
         except requests.exceptions.RequestException as e:
-            print(f"API request error: {e}")
-            if hasattr(e.response, 'text'):
-                print(f"Error response content: {e.response.text}")
+            print(f"Horus API request error: {e}")
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                print(f"Error response: {e.response.text[:200]}")  # Show only first 200 chars
             return {'error': str(e)}
     
     def get_price_history(self, symbol: str = "BTC", interval: str = "15m", 

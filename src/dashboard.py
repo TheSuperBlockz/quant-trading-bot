@@ -140,7 +140,12 @@ class TradingDashboard:
 
             html.Div([
                 html.H4(f"${latest_portfolio.get('cash_value', 0):.2f}"),
-                html.P("Available Cash"),
+                html.P("USD Cash"),
+            ], style={'textAlign': 'center', 'padding': '20px', 'border': '1px solid #ddd', 'borderRadius': '10px'}),
+
+            html.Div([
+                html.H4(f"{latest_portfolio.get('btc_balance', 0):.8f} BTC"),
+                html.P(f"${latest_portfolio.get('btc_value', 0):.2f}"),
             ], style={'textAlign': 'center', 'padding': '20px', 'border': '1px solid #ddd', 'borderRadius': '10px'}),
 
             html.Div([

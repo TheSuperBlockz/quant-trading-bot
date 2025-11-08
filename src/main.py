@@ -169,7 +169,29 @@ class TradingBot:
                 # Log market data
                 self.logger.log_market_data(market_data)
                 
-                # 2. Get historical price data from Horus
+                # 2. Get current price from Roostoo (real-time)
+                current_price = None
+                try:
+                    # Try to get price from market_data response
+                    if 'Data' in market_data and self.config.TRADE_PAIR in market_data['Data']:
+                        current_price = float(market_data['Data'][self.config.TRADE_PAIR].get('LastPrice', 0))
+                    elif 'lastPrice' in market_data:
+                        current_price = float(market_data['lastPrice'])
+                    elif 'price' in market_data:
+                        current_price = float(market_data['price'])
+                    
+                    if not current_price or current_price == 0:
+                        self.logger.logger.error("Failed to extract current price from market data")
+                        time.sleep(30)
+                        continue
+                        
+                    self.logger.logger.info(f"Current price from Roostoo: {current_price}")
+                except Exception as e:
+                    self.logger.logger.error(f"Error getting current price: {e}")
+                    time.sleep(30)
+                    continue
+                
+                # 3. Get historical price data from Horus (for MACD calculation)
                 base_currency = self.config.TRADE_PAIR.split('/')[0]  # Extract BTC from BTC/USD
                 end_time = int(time.time())
                 start_time = end_time - (15 * 60 * 100)  # Get last 100 15-minute candles
@@ -183,16 +205,6 @@ class TradingBot:
                 
                 if 'error' in klines or not klines:
                     self.logger.logger.error("Failed to get historical price data from Horus")
-                    time.sleep(30)
-                    continue
-                
-                # 3. Get current price from the most recent Horus data
-                if klines and isinstance(klines, list) and len(klines) > 0:
-                    # Get the most recent price from Horus data
-                    current_price = float(klines[-1]['price'])
-                    self.logger.logger.info(f"Current price from Horus: {current_price}")
-                else:
-                    self.logger.logger.error("Failed to get price from Horus data")
                     time.sleep(30)
                     continue
                 
