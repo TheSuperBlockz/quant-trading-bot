@@ -113,6 +113,9 @@ class PaperTradingBot:
                 self.paper_balance[quote_currency]['free'] -= (total_cost + commission)
                 self.paper_balance[base_currency]['free'] += quantity
                 
+                # Update strategy position tracking
+                self.strategy.open_position(current_price, quantity)
+                
                 self.logger.logger.info(
                     f"Paper BUY executed - Cost: ${total_cost:.2f}, "
                     f"Commission: ${commission:.2f}, "
@@ -132,15 +135,18 @@ class PaperTradingBot:
                 self.logger.log_trade(trade_data)
                 
             elif decision.action == Action.SELL:
-                # Calculate sell quantity
-                available_coin = self.paper_balance[base_currency]['free']
-                quantity = available_coin * self.config.MAX_POSITION_SIZE
+                # Use quantity from decision if provided (for exit signals), otherwise calculate
+                if decision.quantity > 0:
+                    quantity = decision.quantity
+                else:
+                    available_coin = self.paper_balance[base_currency]['free']
+                    quantity = available_coin * self.config.MAX_POSITION_SIZE
+                
                 total_value = quantity * current_price
                 commission = total_value * commission_rate
                 
                 self.logger.logger.info(
-                    f"SELL calculation - Available BTC: {available_coin:.8f}, "
-                    f"Max trade (10%): {quantity:.8f} BTC, "
+                    f"SELL calculation - Quantity: {quantity:.8f} BTC, "
                     f"Total value: ${total_value:.2f}"
                 )
                 
