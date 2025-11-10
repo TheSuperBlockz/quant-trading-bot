@@ -36,6 +36,9 @@ class TradingBot:
         self.MIN_BTC_AMOUNT = 0.00001  # Minimum BTC amount (5 decimal places per API spec)
         self.MIN_TRADE_VALUE = 1.0  # Minimum trade value in USD (MiniOrder = 1)
         
+        # RECOVERY: Sync strategy state with actual positions from logs
+        self._recover_position_state()
+        
         if enable_dashboard:
             self.start_dashboard()
     
@@ -48,6 +51,146 @@ class TradingBot:
             self.logger.logger.info("Dashboard started: http://localhost:8050")
         except Exception as e:
             self.logger.logger.error(f"Failed to start dashboard: {e}")
+    
+    def _recover_position_state(self):
+        """
+        Recover strategy position state from actual balance and trade logs.
+        This prevents duplicate trades when bot restarts with existing positions.
+        """
+        try:
+            self.logger.logger.info("=" * 60)
+            self.logger.logger.info("CHECKING FOR EXISTING POSITIONS TO RECOVER")
+            self.logger.logger.info("=" * 60)
+            
+            # Get actual balance from Roostoo
+            balance = self.roostoo.get_account_balance()
+            if 'error' in balance:
+                self.logger.logger.warning(f"Could not fetch balance for recovery: {balance.get('error')}")
+                return
+            
+            btc_holdings = balance.get('BTC', {}).get('free', 0)
+            usd_balance = balance.get('USD', {}).get('free', 0)
+            
+            self.logger.logger.info(f"Current Balance - BTC: {btc_holdings:.8f}, USD: ${usd_balance:.2f}")
+            
+            # Check if we have significant BTC holdings (more than dust)
+            if btc_holdings < 0.0001:
+                self.logger.logger.info("No significant BTC position detected - starting fresh")
+                self.logger.logger.info("=" * 60)
+                return
+            
+            self.logger.logger.warning(f"⚠️  EXISTING BTC POSITION DETECTED: {btc_holdings:.8f} BTC")
+            
+            # Try to load trade history from logs
+            import json
+            trade_log_path = self.logger.logs_dir / 'trade_history.json'
+            
+            if not trade_log_path.exists():
+                self.logger.logger.error(
+                    "❌ BTC position exists but no trade_history.json found! "
+                    "Cannot recover position state. Bot may attempt to buy again!"
+                )
+                self.logger.logger.error("RECOMMENDATION: Manually sell BTC or provide trade logs")
+                self.logger.logger.info("=" * 60)
+                return
+            
+            # Load trade history
+            with open(trade_log_path, 'r') as f:
+                trades = json.load(f)
+            
+            if not trades:
+                self.logger.logger.error("❌ Trade history is empty! Cannot recover position.")
+                self.logger.logger.info("=" * 60)
+                return
+            
+            self.logger.logger.info(f"Found {len(trades)} trades in history")
+            
+            # Find all BUY trades to calculate average entry and total quantity
+            buy_trades = [t for t in trades if t.get('action') == 'BUY']
+            sell_trades = [t for t in trades if t.get('action') == 'SELL']
+            
+            if not buy_trades:
+                self.logger.logger.error("❌ No BUY trades found in history!")
+                self.logger.logger.info("=" * 60)
+                return
+            
+            # Calculate total bought and sold
+            total_bought_qty = sum(t.get('quantity', 0) for t in buy_trades)
+            total_bought_value = sum(t.get('total', 0) for t in buy_trades)
+            total_sold_qty = sum(t.get('quantity', 0) for t in sell_trades)
+            
+            # Net position should match actual balance
+            net_position_qty = total_bought_qty - total_sold_qty
+            
+            self.logger.logger.info(f"Trade Summary:")
+            self.logger.logger.info(f"  Total BUY: {total_bought_qty:.8f} BTC for ${total_bought_value:.2f}")
+            self.logger.logger.info(f"  Total SELL: {total_sold_qty:.8f} BTC")
+            self.logger.logger.info(f"  Net Position: {net_position_qty:.8f} BTC")
+            self.logger.logger.info(f"  Actual Balance: {btc_holdings:.8f} BTC")
+            
+            # Calculate weighted average entry price
+            if total_bought_qty > 0:
+                avg_entry_price = total_bought_value / total_bought_qty
+            else:
+                avg_entry_price = buy_trades[-1].get('price', 0)
+            
+            # Use the last BUY trade for reference
+            last_buy = buy_trades[-1]
+            last_trade = trades[-1]  # Last trade of any type
+            
+            self.logger.logger.info(f"Recovery Details:")
+            self.logger.logger.info(f"  Average Entry Price: ${avg_entry_price:.2f}")
+            self.logger.logger.info(f"  Last BUY Price: ${last_buy.get('price', 0):.2f}")
+            self.logger.logger.info(f"  Last BUY Time: {last_buy.get('timestamp', 'unknown')}")
+            
+            # Restore position in strategy using actual holdings and average entry
+            self.strategy.open_position(avg_entry_price, btc_holdings)
+            self.logger.logger.warning(
+                f"✅ POSITION RESTORED - Entry: ${avg_entry_price:.2f}, "
+                f"Qty: {btc_holdings:.8f} BTC, "
+                f"Value: ${avg_entry_price * btc_holdings:.2f}"
+            )
+            self.logger.logger.info(
+                f"   Stop Loss: ${self.strategy.position.stop_loss:.2f}, "
+                f"Take Profit: ${self.strategy.position.take_profit:.2f}"
+            )
+            
+            # Restore cooldown state from last trade (regardless of BUY/SELL)
+            try:
+                from datetime import datetime
+                last_trade_time = datetime.fromisoformat(last_trade.get('timestamp'))
+                last_trade_action = Action.BUY if last_trade.get('action') == 'BUY' else Action.SELL
+                
+                self.strategy.last_trade_time = last_trade_time
+                self.strategy.last_trade_action = last_trade_action
+                
+                time_since_last_trade = (datetime.now() - last_trade_time).total_seconds()
+                self.logger.logger.info(
+                    f"✅ COOLDOWN RESTORED - Last {last_trade_action.value} was "
+                    f"{time_since_last_trade:.0f}s ago ({time_since_last_trade/60:.1f} min)"
+                )
+                
+                if time_since_last_trade < self.strategy.min_trade_interval_seconds:
+                    remaining = self.strategy.min_trade_interval_seconds - time_since_last_trade
+                    self.logger.logger.warning(
+                        f"⏰ Cooldown active: {remaining:.0f}s remaining ({remaining/60:.1f} min)"
+                    )
+                else:
+                    self.logger.logger.info("✅ Cooldown expired - ready to trade")
+                    
+            except Exception as e:
+                self.logger.logger.error(f"Failed to restore cooldown state: {e}")
+            
+            self.logger.logger.info("=" * 60)
+            self.logger.logger.info("✅ STRATEGY STATE RECOVERY COMPLETE")
+            self.logger.logger.info("=" * 60)
+            
+        except Exception as e:
+            self.logger.logger.error(f"❌ Failed to recover position state: {e}")
+            self.logger.logger.error("Bot will start with clean state - may attempt duplicate trades!")
+            self.logger.logger.info("=" * 60)
+            import traceback
+            traceback.print_exc()
     
     def get_portfolio_value(self, balance_data: Dict, current_prices: Dict) -> float:
         """Calculate total portfolio value"""
@@ -125,6 +268,11 @@ class TradingBot:
                     }
                     self.logger.log_trade(trade_data)
                     
+                    # Update strategy position tracking and record trade
+                    self.strategy.open_position(decision.price, quantity)
+                    self.strategy.record_trade(Action.BUY)
+                    self.logger.logger.info(f"BUY trade recorded in strategy - Position opened")
+                    
             elif decision.action == Action.SELL:
                 # Use quantity from decision if provided (for exit signals), otherwise calculate
                 if decision.quantity > 0:
@@ -158,6 +306,9 @@ class TradingBot:
                         'reason': decision.reason
                     }
                     self.logger.log_trade(trade_data)
+                    
+                    # Strategy already handles close_position() and record_trade() internally for SELL
+                    self.logger.logger.info(f"SELL trade logged - Strategy position should be closed")
                     
         except Exception as e:
             self.logger.logger.error(f"Failed to execute trade: {e}")
@@ -199,7 +350,9 @@ class TradingBot:
             )
             
             if 'error' not in result:
-                self.strategy.open_position(current_price, quantity)  # Track in strategy
+                # Track position and record trade in strategy
+                self.strategy.open_position(current_price, quantity)
+                self.strategy.record_trade(Action.BUY)
                 
                 trade_data = {
                     'action': 'BUY',
