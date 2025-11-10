@@ -360,6 +360,6 @@ class TradingBot:
                 time.sleep(60)  # Wait longer on error
 
 if __name__ == "__main__":
-    # Enable dashboard for local testing; disable for AWS deployment
-    bot = TradingBot(enable_dashboard=True)
+    # Production deployment - dashboard disabled for AWS
+    bot = TradingBot(enable_dashboard=False)
     bot.run()
