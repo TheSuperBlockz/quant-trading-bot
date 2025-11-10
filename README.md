@@ -123,3 +123,82 @@ Auto-created directory in project root containing:
 
 ### Supporting Directories
 - `deploy/` - Deployment scripts for cloud setup (AWS, etc.)
+
+---
+
+## Pre-Deployment Checklist (For Competition/Production)
+
+Before deploying the trading bot to AWS or any production environment for the actual competition, complete these steps:
+
+### 1. **Disable the Dashboard**
+The dashboard is useful for local testing but should be disabled in production to reduce resource usage and potential security risks.
+
+**In `src/main.py`, find the `__main__` section and set:**
+```python
+if __name__ == "__main__":
+    bot = TradingBot(enable_dashboard=False)  # Set to False for production
+    bot.run()
+```
+
+### 2. **Verify API Keys**
+- Ensure your `.env` file contains the **production** API keys (not test/sandbox keys)
+- Double-check that `ROOSTOO_API_KEY`, `ROOSTOO_SECRET`, and `HORUS_API_KEY` are correct
+- Verify your Roostoo API keys have **trading permissions** enabled
+
+### 3. **Test the Initial Trade**
+The bot automatically executes a **$1.14 BTC purchase** on startup to satisfy the competition's 24-hour trade requirement. Before deploying:
+```bash
+# Run in paper trading mode to verify it works
+python paper_trading.py
+
+# Check logs to confirm initial trade executed:
+# Should see "INITIAL TRADE: Executing $1.14 BUY to satisfy competition requirement"
+```
+
+### 4. **Check Strategy Parameters**
+Review `config/config.py` for your final strategy settings:
+- **MACD parameters**: Fast=12, Slow=26, Signal=9 (default)
+- **Risk management**: 3% take profit, 3% stop loss, 1.5% trailing stop
+- **Trade cooldown**: 1 hour between same-direction trades
+- **Minimum trade**: $1 USD value, 0.00001 BTC amount
+
+### 5. **Set Up Logging**
+- Ensure the `logs/` directory will be writable on your deployment environment
+- Consider setting up log rotation for long-running competitions
+- Verify you can access logs remotely (AWS CloudWatch, etc.)
+
+### 6. **Configure Auto-Restart**
+For reliability in production:
+- Use a process manager like `systemd`, `supervisor`, or `pm2`
+- Configure auto-restart on crash
+- Set up monitoring/alerting for bot downtime
+
+### 7. **Timing for Competition Start**
+- Competition starts: **November 10, 2025, 8:00 PM**
+- The bot will immediately execute the $1.14 initial trade on first iteration
+- Ensure bot is started **at or shortly after** 8:00 PM to begin trading
+
+### 8. **Final Sanity Checks**
+```bash
+# Verify all dependencies are installed
+pip install -r requirements.txt
+
+# Test API connectivity (use the testing tool)
+cd tests
+python test_roostoo_api.py
+# Select option 1 (Test Market Data) and 2 (Test Account Balance)
+
+# Verify your starting balance is $50,000 USD (competition starting amount)
+```
+
+### 9. **Backup Configuration**
+- Make a backup copy of your `.env` and `config/` files
+- Keep a record of your deployment settings
+- Document your AWS instance details (IP, region, instance type)
+
+### 10. **Monitor the Bot**
+After deployment:
+- Watch the logs for the first few minutes to ensure proper startup
+- Confirm the initial $1.14 BUY trade executed successfully
+- Monitor for any API errors or connectivity issues
+- Keep an eye on your balance and positions via the Roostoo web interface

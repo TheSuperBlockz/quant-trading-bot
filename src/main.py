@@ -32,6 +32,10 @@ class TradingBot:
         self.enable_dashboard = enable_dashboard
         self.dashboard_thread = None
         
+        # Trading constants
+        self.MIN_BTC_AMOUNT = 0.00001  # Minimum BTC amount (5 decimal places per API spec)
+        self.MIN_TRADE_VALUE = 1.0  # Minimum trade value in USD (MiniOrder = 1)
+        
         if enable_dashboard:
             self.start_dashboard()
     
@@ -95,9 +99,12 @@ class TradingBot:
                 max_trade_value = available_cash * self.config.MAX_POSITION_SIZE
                 quantity = max_trade_value / decision.price
                 
-                if quantity * decision.price < 10:  # Minimum trade amount check
-                    self.logger.logger.info("Trade amount too small, skipping")
+                if quantity * decision.price < self.MIN_TRADE_VALUE:  # Minimum trade amount check
+                    self.logger.logger.info(f"Trade amount too small (${quantity * decision.price:.2f} < ${self.MIN_TRADE_VALUE}), skipping")
                     return
+                
+                # Ensure quantity meets minimum precision (5 decimal places for BTC)
+                quantity = round(quantity, 5)
                 
                 # Execute buy
                 base_currency = symbol.split('/')[0]  # Get the coin symbol (e.g., BTC)
@@ -119,13 +126,19 @@ class TradingBot:
                     self.logger.log_trade(trade_data)
                     
             elif decision.action == Action.SELL:
-                # Calculate sell quantity
-                available_coin = balance_data.get(base_currency, {}).get('free', 0)
-                quantity = available_coin * self.config.MAX_POSITION_SIZE
+                # Use quantity from decision if provided (for exit signals), otherwise calculate
+                if decision.quantity > 0:
+                    quantity = decision.quantity
+                else:
+                    available_coin = balance_data.get(base_currency, {}).get('free', 0)
+                    quantity = available_coin * self.config.MAX_POSITION_SIZE
                 
-                if quantity * decision.price < 10:  # Minimum trade amount check
-                    self.logger.logger.info("Trade amount too small, skipping")
+                if quantity * decision.price < self.MIN_TRADE_VALUE:  # Minimum trade amount check
+                    self.logger.logger.info(f"Trade amount too small (${quantity * decision.price:.2f} < ${self.MIN_TRADE_VALUE}), skipping")
                     return
+                
+                # Ensure quantity meets minimum precision (5 decimal places for BTC)
+                quantity = round(quantity, 5)
                 
                 # Execute sell
                 base_currency = symbol.split('/')[0]  # Get the coin symbol (e.g., BTC)
@@ -149,9 +162,70 @@ class TradingBot:
         except Exception as e:
             self.logger.logger.error(f"Failed to execute trade: {e}")
     
+    def execute_initial_trade(self, current_price: float, balance_data: Dict):
+        """Execute initial $1.14 BUY trade to satisfy competition requirement"""
+        try:
+            symbol = self.config.TRADE_PAIR
+            base_currency = symbol.split('/')[0]  # BTC
+            quote_currency = symbol.split('/')[1]  # USD
+            
+            # Calculate quantity for $1.14 trade (meme amount)
+            trade_value = 1.14  # $1.14 USD
+            quantity = trade_value / current_price
+            quantity = round(quantity, 5)  # Round to 5 decimal places
+            
+            # Verify we have enough balance
+            available_cash = balance_data.get(quote_currency, {}).get('free', 0)
+            required_cash = quantity * current_price
+            
+            if available_cash < required_cash:
+                self.logger.logger.error(
+                    f"Insufficient balance for initial trade: need ${required_cash:.2f}, have ${available_cash:.2f}"
+                )
+                return False
+            
+            self.logger.logger.info(
+                f"INITIAL TRADE: Executing $1.14 BUY to satisfy competition requirement"
+            )
+            self.logger.logger.info(
+                f"Buying {quantity:.5f} BTC @ ${current_price:.2f} (${required_cash:.2f} total)"
+            )
+            
+            # Execute buy order
+            result = self.roostoo.place_order(
+                coin=base_currency,
+                side='BUY',
+                quantity=quantity
+            )
+            
+            if 'error' not in result:
+                self.strategy.open_position(current_price, quantity)  # Track in strategy
+                
+                trade_data = {
+                    'action': 'BUY',
+                    'symbol': symbol,
+                    'quantity': quantity,
+                    'price': current_price,
+                    'total': quantity * current_price,
+                    'reason': 'INITIAL TRADE: Competition requirement ($1.14 BTC purchase)'
+                }
+                self.logger.log_trade(trade_data)
+                self.logger.logger.info("Initial trade executed successfully!")
+                return True
+            else:
+                self.logger.logger.error(f"Initial trade failed: {result.get('error')}")
+                return False
+                
+        except Exception as e:
+            self.logger.logger.error(f"Failed to execute initial trade: {e}")
+            return False
+    
     def run(self):
         """Main trading loop"""
         self.logger.logger.info("Starting trading bot...")
+        
+        # Flag to track if initial trade has been executed
+        initial_trade_executed = False
         
         iteration = 0
         while self.running:
@@ -257,6 +331,17 @@ class TradingBot:
                     'current_price': current_price
                 }
                 self.logger.log_portfolio_update(portfolio_data)
+                
+                # 6. Execute initial $1.14 trade (only once on first iteration)
+                if not initial_trade_executed:
+                    self.logger.logger.info("=" * 60)
+                    self.logger.logger.info("EXECUTING INITIAL TRADE (Competition Requirement)")
+                    self.logger.logger.info("=" * 60)
+                    initial_trade_executed = self.execute_initial_trade(current_price, balance_data)
+                    if initial_trade_executed:
+                        # Wait a bit to let the trade settle
+                        time.sleep(5)
+                    self.logger.logger.info("=" * 60)
                 
                 # 7. Execute trading decision
                 if decision.action != Action.HOLD:

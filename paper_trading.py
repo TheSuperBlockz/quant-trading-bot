@@ -51,6 +51,10 @@ class PaperTradingBot:
             'BTC': {'free': initial_btc, 'locked': 0.0}
         }
         
+        # Trading constants
+        self.MIN_BTC_AMOUNT = 0.00001  # Minimum BTC amount (5 decimal places)
+        self.MIN_TRADE_VALUE = 1.0  # Minimum trade value in USD (MiniOrder = 1)
+        
         self.running = True
         self.enable_dashboard = enable_dashboard
         self.dashboard_thread = None
@@ -102,9 +106,12 @@ class PaperTradingBot:
                     f"Total cost: ${total_cost:.2f}"
                 )
                 
-                if total_cost < 10:  # Minimum trade amount check
-                    self.logger.logger.info("Trade amount too small, skipping")
+                if total_cost < self.MIN_TRADE_VALUE:  # Minimum trade amount check
+                    self.logger.logger.info(f"Trade amount too small (${total_cost:.2f} < ${self.MIN_TRADE_VALUE}), skipping")
                     return
+                
+                # Ensure quantity meets minimum precision (5 decimal places for BTC)
+                quantity = round(quantity, 5)
                 
                 # Simulate order execution
                 self.logger.logger.info(f"Simulating BUY order: {quantity:.8f} {base_currency} @ ${current_price:.2f}")
@@ -150,9 +157,12 @@ class PaperTradingBot:
                     f"Total value: ${total_value:.2f}"
                 )
                 
-                if total_value < 10:  # Minimum trade amount check
-                    self.logger.logger.info("Trade amount too small, skipping")
+                if total_value < self.MIN_TRADE_VALUE:  # Minimum trade amount check
+                    self.logger.logger.info(f"Trade amount too small (${total_value:.2f} < ${self.MIN_TRADE_VALUE}), skipping")
                     return
+                
+                # Ensure quantity meets minimum precision (5 decimal places for BTC)
+                quantity = round(quantity, 5)
                 
                 # Simulate order execution
                 self.logger.logger.info(f"Simulating SELL order: {quantity:.8f} {base_currency} @ ${current_price:.2f}")
@@ -182,9 +192,68 @@ class PaperTradingBot:
         except Exception as e:
             self.logger.logger.error(f"Failed to execute paper trade: {e}")
     
+    def execute_initial_trade(self, current_price: float):
+        """Execute initial $1.14 BUY trade to satisfy competition requirement"""
+        try:
+            symbol = self.config.TRADE_PAIR
+            base_currency = symbol.split('/')[0]  # BTC
+            quote_currency = symbol.split('/')[1]  # USD
+            commission_rate = 0.001
+            
+            # Calculate quantity for $1.14 trade (meme amount)
+            trade_value = 1.14  # $1.14 USD
+            quantity = trade_value / current_price
+            quantity = round(quantity, 5)
+            
+            total_cost = quantity * current_price
+            commission = total_cost * commission_rate
+            
+            # Verify we have enough balance
+            available_cash = self.paper_balance[quote_currency]['free']
+            if available_cash < (total_cost + commission):
+                self.logger.logger.error(
+                    f"Insufficient balance for initial trade: need ${total_cost + commission:.2f}, have ${available_cash:.2f}"
+                )
+                return False
+            
+            self.logger.logger.info(
+                f"INITIAL TRADE: Executing $1.14 BUY to satisfy competition requirement"
+            )
+            self.logger.logger.info(
+                f"Buying {quantity:.5f} BTC @ ${current_price:.2f} (${total_cost:.2f} total)"
+            )
+            
+            # Update paper balance
+            self.paper_balance[quote_currency]['free'] -= (total_cost + commission)
+            self.paper_balance[base_currency]['free'] += quantity
+            
+            # Update strategy position tracking
+            self.strategy.open_position(current_price, quantity)
+            
+            # Log trade
+            trade_data = {
+                'action': 'BUY',
+                'symbol': symbol,
+                'quantity': quantity,
+                'price': current_price,
+                'total': total_cost,
+                'commission': commission,
+                'reason': 'INITIAL TRADE: Competition requirement ($1.14 BTC purchase)'
+            }
+            self.logger.log_trade(trade_data)
+            self.logger.logger.info("Initial trade executed successfully!")
+            return True
+                
+        except Exception as e:
+            self.logger.logger.error(f"Failed to execute initial trade: {e}")
+            return False
+    
     def run(self):
         """Main paper trading loop"""
         self.logger.logger.info("Starting paper trading bot...")
+        
+        # Flag to track if initial trade has been executed
+        initial_trade_executed = False
         
         iteration = 0
         while self.running:
@@ -279,11 +348,22 @@ class PaperTradingBot:
                 }
                 self.logger.log_portfolio_update(portfolio_data)
                 
-                # 6. Execute paper trading decision
+                # 6. Execute initial $1.14 trade (only once on first iteration)
+                if not initial_trade_executed:
+                    self.logger.logger.info("=" * 60)
+                    self.logger.logger.info("EXECUTING INITIAL TRADE (Competition Requirement)")
+                    self.logger.logger.info("=" * 60)
+                    initial_trade_executed = self.execute_initial_trade(current_price)
+                    if initial_trade_executed:
+                        # Wait a bit to let the trade settle
+                        time.sleep(5)
+                    self.logger.logger.info("=" * 60)
+                
+                # 7. Execute paper trading decision
                 if decision.action != Action.HOLD:
                     self.execute_paper_trade(decision, current_price)
                 
-                # 7. Wait for next iteration
+                # 8. Wait for next iteration
                 self.logger.logger.info(f"Waiting {self.config.TRADE_INTERVAL} seconds...")
                 time.sleep(self.config.TRADE_INTERVAL)
                 
