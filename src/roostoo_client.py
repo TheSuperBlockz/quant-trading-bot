@@ -176,7 +176,17 @@ class RoostooClient:
                 amts = extract_amounts(item)
                 merge_asset(sym, free_val=amts['free'], locked_val=amts['locked'], total_val=amts['total'])
         elif isinstance(spot, dict):
-            # Some shapes wrap balances under a key like 'Balances'
+            # Check if SpotWallet is a dict with currency codes as keys (e.g., {"BTC": {"Free": 0.0025, "Lock": 0}})
+            # This is the format used by the competition API
+            for currency_code, balance_data in spot.items():
+                if isinstance(balance_data, dict):
+                    # Handle {"Free": X, "Lock": Y} format
+                    free_val = balance_data.get('Free') or balance_data.get('free')
+                    lock_val = balance_data.get('Lock') or balance_data.get('lock') or balance_data.get('locked') or balance_data.get('Locked')
+                    merge_asset(currency_code, free_val=free_val, locked_val=lock_val)
+                    continue
+            
+            # Fallback: Some shapes wrap balances under a key like 'Balances'
             balances = spot.get('Balances') or spot.get('balances') or spot.get('Assets') or spot.get('assets')
             if isinstance(balances, list):
                 for item in balances:
@@ -195,6 +205,13 @@ class RoostooClient:
                 sym = extract_symbol(item)
                 amts = extract_amounts(item)
                 merge_asset(sym, free_val=amts['free'], locked_val=amts['locked'], total_val=amts['total'])
+        elif isinstance(margin, dict):
+            # Handle dict format for MarginWallet too
+            for currency_code, balance_data in margin.items():
+                if isinstance(balance_data, dict):
+                    free_val = balance_data.get('Free') or balance_data.get('free')
+                    lock_val = balance_data.get('Lock') or balance_data.get('lock') or balance_data.get('locked') or balance_data.get('Locked')
+                    merge_asset(currency_code, free_val=free_val, locked_val=lock_val)
 
         # Ensure required keys exist with zeros to satisfy downstream logic
         for required in ('USD', 'BTC'):
