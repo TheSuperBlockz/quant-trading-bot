@@ -23,10 +23,15 @@ class TradingBot:
         self.logger = TradingLogger()
         self.roostoo = RoostooClient()
         self.horus = HorusClient()
+        
+        # Initialize strategy with crypto optimizations
+        crypto_params = self.config.get_crypto_optimized_params()
         self.strategy = MACEStrategy(
             fast_period=self.config.FAST_EMA_PERIOD,
             slow_period=self.config.SLOW_EMA_PERIOD,
-            signal_period=self.config.SIGNAL_PERIOD
+            signal_period=self.config.SIGNAL_PERIOD,
+            volatility_lookback=crypto_params['volatility_lookback'],
+            high_vol_multiplier=crypto_params['high_vol_multiplier']
         )
         self.running = True
         self.enable_dashboard = enable_dashboard
@@ -35,6 +40,12 @@ class TradingBot:
         # Trading constants
         self.MIN_BTC_AMOUNT = 0.00001  # Minimum BTC amount (5 decimal places per API spec)
         self.MIN_TRADE_VALUE = 1.0  # Minimum trade value in USD (MiniOrder = 1)
+        
+        # Performance tracking
+        self.daily_trade_count = 0
+        self.last_trade_date = None
+        self.consecutive_losses = 0
+        self.peak_portfolio_value = 50000.0  # Starting balance
         
         # RECOVERY: Sync strategy state with actual positions from logs
         self._recover_position_state()
@@ -229,14 +240,87 @@ class TradingBot:
             # Re-raise the exception to be handled by the main loop
             raise
     
+    def crypto_risk_checks(self, current_price: float, balance_data: Dict) -> bool:
+        """
+        Crypto-specific risk management checks.
+        Returns True if trade is allowed, False otherwise.
+        """
+        try:
+            # 1. Daily trade limit
+            from datetime import date
+            today = date.today()
+            
+            if self.last_trade_date != today:
+                self.daily_trade_count = 0
+                self.last_trade_date = today
+            
+            if self.daily_trade_count >= self.config.DAILY_TRADE_LIMIT:
+                self.logger.logger.warning(
+                    f"⚠️ Daily trade limit reached ({self.config.DAILY_TRADE_LIMIT}), skipping trade"
+                )
+                return False
+            
+            # 2. Portfolio concentration (avoid over-exposure to single asset)
+            btc_balance = balance_data.get('BTC', {}).get('free', 0)
+            current_prices = {'BTC': current_price}
+            total_value = self.get_portfolio_value(balance_data, current_prices)
+            
+            if total_value > 0:
+                btc_value = btc_balance * current_price
+                btc_percentage = (btc_value / total_value) * 100
+                
+                if btc_percentage > 85:  # Max 85% in BTC
+                    self.logger.logger.warning(
+                        f"⚠️ Portfolio too concentrated in BTC ({btc_percentage:.1f}%), skipping BUY"
+                    )
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            self.logger.logger.error(f"Error in crypto_risk_checks: {e}")
+            return False  # Fail-safe: don't trade if risk check fails
+    
+    def monitor_performance(self, current_portfolio_value: float):
+        """
+        Monitor performance metrics for alerts.
+        """
+        try:
+            # Update peak value
+            if current_portfolio_value > self.peak_portfolio_value:
+                self.peak_portfolio_value = current_portfolio_value
+            
+            # Calculate drawdown
+            if self.peak_portfolio_value > 0:
+                drawdown = (self.peak_portfolio_value - current_portfolio_value) / self.peak_portfolio_value
+                
+                if drawdown >= self.config.DRAWDOWN_ALERT:
+                    self.logger.logger.warning(
+                        f"⚠️ DRAWDOWN ALERT: {drawdown*100:.1f}% from peak "
+                        f"(Peak: ${self.peak_portfolio_value:.2f}, Current: ${current_portfolio_value:.2f})"
+                    )
+            
+            # Alert on consecutive losses
+            if self.consecutive_losses >= self.config.CONSECUTIVE_LOSS_ALERT:
+                self.logger.logger.warning(
+                    f"⚠️ CONSECUTIVE LOSSES: {self.consecutive_losses} trades in a row"
+                )
+                
+        except Exception as e:
+            self.logger.logger.error(f"Error in monitor_performance: {e}")
+    
     def execute_trade(self, decision, balance_data: Dict):
-        """Execute trade"""
+        """Execute trade with crypto risk checks"""
         try:
             symbol = self.config.TRADE_PAIR
             base_currency = symbol.split('/')[0]  # BTC
             quote_currency = symbol.split('/')[1]  # USD
             
             if decision.action == Action.BUY:
+                # Perform crypto-specific risk checks for BUY orders
+                if not self.crypto_risk_checks(decision.price, balance_data):
+                    return
+                
                 # Calculate buy quantity
                 available_cash = balance_data.get(quote_currency, {}).get('free', 0)
                 max_trade_value = available_cash * self.config.MAX_POSITION_SIZE
@@ -272,6 +356,9 @@ class TradingBot:
                     self.strategy.open_position(decision.price, quantity)
                     self.strategy.record_trade(Action.BUY)
                     self.logger.logger.info(f"BUY trade recorded in strategy - Position opened")
+                    
+                    # Update performance tracking
+                    self.daily_trade_count += 1
                     
             elif decision.action == Action.SELL:
                 # Use quantity from decision if provided (for exit signals), otherwise calculate
@@ -309,6 +396,15 @@ class TradingBot:
                     
                     # Strategy already handles close_position() and record_trade() internally for SELL
                     self.logger.logger.info(f"SELL trade logged - Strategy position should be closed")
+                    
+                    # Update performance tracking
+                    self.daily_trade_count += 1
+                    
+                    # Track consecutive losses (if exit reason was stop loss)
+                    if 'stop loss' in decision.reason.lower():
+                        self.consecutive_losses += 1
+                    else:
+                        self.consecutive_losses = 0  # Reset on profitable exit
                     
         except Exception as e:
             self.logger.logger.error(f"Failed to execute trade: {e}")
@@ -484,6 +580,9 @@ class TradingBot:
                     'current_price': current_price
                 }
                 self.logger.log_portfolio_update(portfolio_data)
+                
+                # Monitor performance for alerts
+                self.monitor_performance(portfolio_value)
                 
                 # 6. Execute initial $1.14 trade (only once on first iteration)
                 if not initial_trade_executed:

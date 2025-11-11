@@ -16,7 +16,6 @@ class Action(Enum):
 class PositionState(Enum):
     NONE = "NONE"
     LONG = "LONG"
-    # SHORT not implemented as Roostoo may not support short selling
 
 @dataclass
 class Position:
@@ -39,31 +38,21 @@ class TradingDecision:
 
 class MACEStrategy:
     """
-    Enhanced MACD Strategy with:
-    - Position state management to prevent signal clustering
-    - Take profit / Stop loss (3% default)
-    - Trailing stop loss
-    - Time-based exits
-    - Cooldown periods between trades
+    Enhanced MACD Strategy with Cryptocurrency Optimizations:
+    - Volatility-adjusted parameters
+    - Flash crash protection
+    - Market hours awareness
+    - Crypto-specific risk management
     """
     
     def __init__(self, fast_period=12, slow_period=26, signal_period=9, 
                  stop_loss_pct=0.03, take_profit_pct=0.03, 
                  trailing_stop_pct=0.015, trailing_activation_pct=0.02,
-                 max_position_hours=48, min_trade_interval_seconds=3600):
+                 max_position_hours=48, min_trade_interval_seconds=3600,
+                 # Cryptocurrency optimizations
+                 volatility_lookback=20, high_vol_multiplier=1.5):
         """
-        Initialize enhanced MACD strategy
-        
-        Args:
-            fast_period: Fast EMA period (default 12)
-            slow_period: Slow EMA period (default 26)
-            signal_period: Signal line period (default 9)
-            stop_loss_pct: Stop loss percentage (default 3%)
-            take_profit_pct: Take profit percentage (default 3%)
-            trailing_stop_pct: Trailing stop distance (default 1.5%)
-            trailing_activation_pct: Profit level to activate trailing stop (default 2%)
-            max_position_hours: Maximum hours to hold position (default 48)
-            min_trade_interval_seconds: Minimum seconds between same-direction trades (default 3600 = 1 hour)
+        Initialize crypto-optimized MACD strategy
         """
         self.fast_period = fast_period
         self.slow_period = slow_period
@@ -77,6 +66,12 @@ class MACEStrategy:
         self.max_position_hours = max_position_hours
         self.min_trade_interval_seconds = min_trade_interval_seconds
         
+        # Cryptocurrency optimizations
+        self.volatility_lookback = volatility_lookback
+        self.high_vol_multiplier = high_vol_multiplier
+        self.previous_price = None
+        self.current_volatility = 0.02
+        
         # Position tracking
         self.position = Position()
         
@@ -88,6 +83,8 @@ class MACEStrategy:
         self.previous_macd = None
         self.previous_signal = None
         
+        logger.info("Crypto-optimized MACD Strategy initialized")
+    
     def calculate_ema(self, prices: List[float], period: int) -> List[float]:
         """Calculate Exponential Moving Average"""
         if len(prices) < period:
@@ -137,6 +134,81 @@ class MACEStrategy:
                 
         return macd_line, signal_line, histogram
     
+    def calculate_crypto_volatility(self, prices: List[float]) -> float:
+        """Calculate cryptocurrency volatility for parameter adjustment"""
+        if len(prices) < 2:
+            return 0.02
+            
+        returns = []
+        lookback = min(len(prices) - 1, self.volatility_lookback)
+        
+        for i in range(1, lookback + 1):
+            if prices[-i-1] != 0:
+                price_change = abs(prices[-i] - prices[-i-1]) / prices[-i-1]
+                returns.append(price_change)
+        
+        volatility = np.mean(returns) if returns else 0.02
+        self.current_volatility = volatility
+        return volatility
+    
+    def adjust_parameters_for_volatility(self, current_volatility: float):
+        """Dynamically adjust parameters based on market volatility"""
+        base_sl = 0.03
+        base_tp = 0.03
+        
+        if current_volatility > 0.05:  # High volatility market
+            self.stop_loss_pct = min(base_sl * self.high_vol_multiplier, 0.08)
+            self.take_profit_pct = min(base_tp * self.high_vol_multiplier, 0.08)
+            logger.info(f"High volatility detected: {current_volatility*100:.1f}%, adjusting SL/TP to {self.stop_loss_pct*100:.1f}%")
+        elif current_volatility < 0.01:  # Low volatility market
+            self.stop_loss_pct = max(base_sl * 0.7, 0.015)
+            self.take_profit_pct = max(base_tp * 0.7, 0.015)
+            logger.info(f"Low volatility detected: {current_volatility*100:.1f}%, tightening SL/TP to {self.stop_loss_pct*100:.1f}%")
+        else:
+            self.stop_loss_pct = base_sl
+            self.take_profit_pct = base_tp
+    
+    def flash_crash_protection(self, current_price: float) -> bool:
+        """Flash crash detection for cryptocurrency markets"""
+        if self.previous_price is None:
+            self.previous_price = current_price
+            return False
+            
+        price_change_pct = abs(current_price - self.previous_price) / self.previous_price
+        
+        # If price changes more than 7% in one interval, likely flash crash
+        if price_change_pct > 0.07:
+            logger.warning(f"Flash crash detected: {price_change_pct*100:.2f}% price change")
+            self.previous_price = current_price
+            return True
+        
+        self.previous_price = current_price
+        return False
+    
+    def is_high_volatility_hours(self) -> bool:
+        """Identify cryptocurrency high volatility periods"""
+        from datetime import datetime
+        utc_hour = datetime.utcnow().hour
+        
+        # Asian market hours (0-8 UTC) + Euro/US overlap (13-17 UTC)
+        high_vol_hours = list(range(0, 8)) + list(range(13, 18))
+        return utc_hour in high_vol_hours
+    
+    def adjust_confidence_for_market_hours(self, decision: TradingDecision) -> TradingDecision:
+        """Adjust trading confidence based on market hours"""
+        if self.is_high_volatility_hours():
+            # More conservative during high volatility hours
+            if decision.confidence < 0.75:
+                decision.confidence *= 0.8
+                decision.reason += " | High vol hours"
+                logger.debug("Reduced confidence due to high volatility hours")
+        else:
+            # Slightly more aggressive during low volatility, but still conservative
+            if decision.confidence > 0.6:
+                decision.confidence = min(decision.confidence * 1.1, 0.9)
+        
+        return decision
+    
     def open_position(self, price: float, quantity: float):
         """Open a new long position"""
         self.position = Position(
@@ -150,15 +222,15 @@ class MACEStrategy:
         )
         logger.info(
             f"Position opened - Entry: ${price:.2f}, "
-            f"SL: ${self.position.stop_loss:.2f}, "
-            f"TP: ${self.position.take_profit:.2f}, "
+            f"SL: ${self.position.stop_loss:.2f} ({self.stop_loss_pct*100:.1f}%), "
+            f"TP: ${self.position.take_profit:.2f} ({self.take_profit_pct*100:.1f}%), "
             f"Qty: {quantity:.8f}"
         )
     
     def close_position(self, reason: str):
         """Close current position"""
         logger.info(f"Position closed - Reason: {reason}")
-        self.position = Position()  # Reset to empty position
+        self.position = Position()
     
     def update_trailing_stop(self, current_price: float):
         """Update trailing stop loss if price has increased"""
@@ -255,15 +327,20 @@ class MACEStrategy:
     
     def analyze(self, klines_data: List, current_price: float) -> TradingDecision:
         """
-        Analyze market and generate trading decision with enhanced risk management
-
-        Parameters:
-            klines_data: K-line data from Horus API [{timestamp, price}, ...]
-            current_price: Current price from Roostoo
-
-        Returns:
-            TradingDecision: Trading decision with action, confidence, and reason
+        Analyze market with cryptocurrency optimizations
         """
+        # Flash crash protection check
+        if self.flash_crash_protection(current_price):
+            return TradingDecision(
+                Action.HOLD, 0.9, current_price, 
+                reason="Flash crash protection - skipping trade"
+            )
+        
+        # Extract prices and calculate volatility
+        closes = [float(kline['price']) for kline in klines_data]
+        volatility = self.calculate_crypto_volatility(closes)
+        self.adjust_parameters_for_volatility(volatility)
+        
         # First priority: Check exit conditions for existing position
         if self.position.state == PositionState.LONG:
             # Update trailing stop
@@ -278,9 +355,6 @@ class MACEStrategy:
         # Validate data sufficiency
         if len(klines_data) < self.slow_period + self.signal_period:
             return TradingDecision(Action.HOLD, 0, current_price, reason="Insufficient data for MACD calculation")
-        
-        # Extract prices from Horus API data format
-        closes = [float(kline['price']) for kline in klines_data]
         
         # Calculate MACD
         macd_line, signal_line, histogram = self.calculate_macd(closes)
@@ -300,10 +374,11 @@ class MACEStrategy:
         # Debug logging
         logger.info(
             f"MACD Analysis - Current: {current_macd:.4f}, Signal: {current_signal:.4f}, "
-            f"Hist: {current_histogram:.4f}, Previous: {previous_macd:.4f}, {previous_signal:.4f}"
+            f"Hist: {current_histogram:.4f}, Volatility: {volatility*100:.2f}%"
         )
         
         # === ENTRY LOGIC ===
+        decision = None
         
         # BUY Signal Detection (Golden Cross + Confirmation)
         if (previous_macd < previous_signal and current_macd > current_signal):
@@ -316,7 +391,6 @@ class MACEStrategy:
                     reason="MACD golden cross (bullish crossover)"
                 )
                 logger.info(f"BUY signal generated: {decision.reason}")
-                return decision
             else:
                 reason = "Already in position" if self.position.state != PositionState.NONE else "Trade cooldown active"
                 logger.debug(f"BUY signal ignored: {reason}")
@@ -329,8 +403,8 @@ class MACEStrategy:
                 if len(closes) >= 200:
                     ema200 = self.calculate_ema(closes, 200)[-1]
                     if current_price < ema200:
-                        logger.debug(f"BUY signal filtered: price ${current_price:.2f} below EMA200 ${ema200:.2f} (downtrend)")
-                        return TradingDecision(Action.HOLD, 0.5, current_price, reason="Waiting for better entry (below long-term trend)")
+                        logger.debug(f"BUY signal filtered: price ${current_price:.2f} below EMA200 ${ema200:.2f}")
+                        return TradingDecision(Action.HOLD, 0.5, current_price, reason="Price below long-term trend")
                 
                 decision = TradingDecision(
                     action=Action.BUY,
@@ -339,7 +413,6 @@ class MACEStrategy:
                     reason="MACD bullish momentum (positive and rising)"
                 )
                 logger.info(f"BUY signal generated: {decision.reason}")
-                return decision
         
         # SELL Signal Detection (Death Cross)
         elif (previous_macd > previous_signal and current_macd < current_signal):
@@ -356,7 +429,6 @@ class MACEStrategy:
                 )
                 self.record_trade(Action.SELL)
                 logger.info(f"SELL signal generated: {decision.reason}")
-                return decision
             else:
                 logger.debug("SELL signal detected but no position to close")
         
@@ -377,19 +449,22 @@ class MACEStrategy:
                     )
                     self.record_trade(Action.SELL)
                     logger.info(f"SELL signal generated: {decision.reason}")
-                    return decision
         
         # Default: HOLD
-        if self.position.state == PositionState.LONG:
-            profit_pct = (current_price - self.position.entry_price) / self.position.entry_price
-            return TradingDecision(
-                Action.HOLD, 
-                0.5, 
-                current_price, 
-                reason=f"Holding position, P/L: {profit_pct*100:+.2f}%, SL: ${self.position.stop_loss:.2f}, TP: ${self.position.take_profit:.2f}"
-            )
-        else:
-            return TradingDecision(Action.HOLD, 0.5, current_price, reason="No clear signal, waiting for opportunity")
+        if decision is None:
+            if self.position.state == PositionState.LONG:
+                profit_pct = (current_price - self.position.entry_price) / self.position.entry_price
+                return TradingDecision(
+                    Action.HOLD, 
+                    0.5, 
+                    current_price, 
+                    reason=f"Holding position, P/L: {profit_pct*100:+.2f}%, SL: ${self.position.stop_loss:.2f}"
+                )
+            else:
+                return TradingDecision(Action.HOLD, 0.5, current_price, reason="No clear signal, waiting for opportunity")
+        
+        # Apply market hours adjustment
+        decision = self.adjust_confidence_for_market_hours(decision)
         
         self.previous_macd = current_macd
         self.previous_signal = current_signal
