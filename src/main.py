@@ -25,13 +25,12 @@ class TradingBot:
         self.horus = HorusClient()
         
         # Initialize strategy with crypto optimizations
-        crypto_params = self.config.get_crypto_optimized_params()
         self.strategy = MACEStrategy(
             fast_period=self.config.FAST_EMA_PERIOD,
             slow_period=self.config.SLOW_EMA_PERIOD,
             signal_period=self.config.SIGNAL_PERIOD,
-            volatility_lookback=crypto_params['volatility_lookback'],
-            high_vol_multiplier=crypto_params['high_vol_multiplier']
+            volatility_lookback=self.config.VOLATILITY_LOOKBACK,
+            high_vol_multiplier=self.config.HIGH_VOL_MULTIPLIER
         )
         self.running = True
         self.enable_dashboard = enable_dashboard
@@ -90,7 +89,7 @@ class TradingBot:
                 self.logger.logger.info("=" * 60)
                 return
             
-            self.logger.logger.warning(f"⚠️  EXISTING BTC POSITION DETECTED: {btc_holdings:.8f} BTC")
+            self.logger.logger.warning(f"[WARNING] EXISTING BTC POSITION DETECTED: {btc_holdings:.8f} BTC")
             
             # Try to load trade history from logs
             import json
@@ -98,7 +97,7 @@ class TradingBot:
             
             if not trade_log_path.exists():
                 self.logger.logger.error(
-                    "❌ BTC position exists but no trade_history.json found! "
+                    "[ERROR] BTC position exists but no trade_history.json found! "
                     "Cannot recover position state. Bot may attempt to buy again!"
                 )
                 self.logger.logger.error("RECOMMENDATION: Manually sell BTC or provide trade logs")
@@ -110,7 +109,7 @@ class TradingBot:
                 trades = json.load(f)
             
             if not trades:
-                self.logger.logger.error("❌ Trade history is empty! Cannot recover position.")
+                self.logger.logger.error("[ERROR] Trade history is empty! Cannot recover position.")
                 self.logger.logger.info("=" * 60)
                 return
             
@@ -121,7 +120,7 @@ class TradingBot:
             sell_trades = [t for t in trades if t.get('action') == 'SELL']
             
             if not buy_trades:
-                self.logger.logger.error("❌ No BUY trades found in history!")
+                self.logger.logger.error("[ERROR] No BUY trades found in history!")
                 self.logger.logger.info("=" * 60)
                 return
             
@@ -157,7 +156,7 @@ class TradingBot:
             # Restore position in strategy using actual holdings and average entry
             self.strategy.open_position(avg_entry_price, btc_holdings)
             self.logger.logger.warning(
-                f"✅ POSITION RESTORED - Entry: ${avg_entry_price:.2f}, "
+                f"[SUCCESS] POSITION RESTORED - Entry: ${avg_entry_price:.2f}, "
                 f"Qty: {btc_holdings:.8f} BTC, "
                 f"Value: ${avg_entry_price * btc_holdings:.2f}"
             )
@@ -177,27 +176,27 @@ class TradingBot:
                 
                 time_since_last_trade = (datetime.now() - last_trade_time).total_seconds()
                 self.logger.logger.info(
-                    f"✅ COOLDOWN RESTORED - Last {last_trade_action.value} was "
+                    f"[SUCCESS] COOLDOWN RESTORED - Last {last_trade_action.value} was "
                     f"{time_since_last_trade:.0f}s ago ({time_since_last_trade/60:.1f} min)"
                 )
                 
                 if time_since_last_trade < self.strategy.min_trade_interval_seconds:
                     remaining = self.strategy.min_trade_interval_seconds - time_since_last_trade
                     self.logger.logger.warning(
-                        f"⏰ Cooldown active: {remaining:.0f}s remaining ({remaining/60:.1f} min)"
+                        f"[COOLDOWN] Cooldown active: {remaining:.0f}s remaining ({remaining/60:.1f} min)"
                     )
                 else:
-                    self.logger.logger.info("✅ Cooldown expired - ready to trade")
+                    self.logger.logger.info("[SUCCESS] Cooldown expired - ready to trade")
                     
             except Exception as e:
                 self.logger.logger.error(f"Failed to restore cooldown state: {e}")
             
             self.logger.logger.info("=" * 60)
-            self.logger.logger.info("✅ STRATEGY STATE RECOVERY COMPLETE")
+            self.logger.logger.info("[SUCCESS] STRATEGY STATE RECOVERY COMPLETE")
             self.logger.logger.info("=" * 60)
             
         except Exception as e:
-            self.logger.logger.error(f"❌ Failed to recover position state: {e}")
+            self.logger.logger.error(f"[ERROR] Failed to recover position state: {e}")
             self.logger.logger.error("Bot will start with clean state - may attempt duplicate trades!")
             self.logger.logger.info("=" * 60)
             import traceback
@@ -256,7 +255,7 @@ class TradingBot:
             
             if self.daily_trade_count >= self.config.DAILY_TRADE_LIMIT:
                 self.logger.logger.warning(
-                    f"⚠️ Daily trade limit reached ({self.config.DAILY_TRADE_LIMIT}), skipping trade"
+                    f"[WARNING] Daily trade limit reached ({self.config.DAILY_TRADE_LIMIT}), skipping trade"
                 )
                 return False
             
@@ -271,7 +270,7 @@ class TradingBot:
                 
                 if btc_percentage > 85:  # Max 85% in BTC
                     self.logger.logger.warning(
-                        f"⚠️ Portfolio too concentrated in BTC ({btc_percentage:.1f}%), skipping BUY"
+                        f"[WARNING] Portfolio too concentrated in BTC ({btc_percentage:.1f}%), skipping BUY"
                     )
                     return False
             
@@ -296,14 +295,14 @@ class TradingBot:
                 
                 if drawdown >= self.config.DRAWDOWN_ALERT:
                     self.logger.logger.warning(
-                        f"⚠️ DRAWDOWN ALERT: {drawdown*100:.1f}% from peak "
+                        f"[WARNING] DRAWDOWN ALERT: {drawdown*100:.1f}% from peak "
                         f"(Peak: ${self.peak_portfolio_value:.2f}, Current: ${current_portfolio_value:.2f})"
                     )
             
             # Alert on consecutive losses
             if self.consecutive_losses >= self.config.CONSECUTIVE_LOSS_ALERT:
                 self.logger.logger.warning(
-                    f"⚠️ CONSECUTIVE LOSSES: {self.consecutive_losses} trades in a row"
+                    f"[WARNING] CONSECUTIVE LOSSES: {self.consecutive_losses} trades in a row"
                 )
                 
         except Exception as e:
