@@ -12,8 +12,10 @@ class TradingLogger:
         self.project_root = Path(__file__).resolve().parents[1]
         self.logs_dir = self.project_root / 'logs'
         self.setup_logging()
-        self.trade_history = []
-        self.portfolio_history = []
+        
+        # Load existing history from previous deployments
+        self.trade_history = self._load_existing_trades()
+        self.portfolio_history = self._load_existing_portfolio()
         
     def setup_logging(self):
         """Set up logging system"""
@@ -30,6 +32,32 @@ class TradingLogger:
             ]
         )
         self.logger = logging.getLogger(__name__)
+    
+    def _load_existing_trades(self):
+        """Load existing trade history from previous deployments"""
+        trade_file = self.logs_dir / 'trade_history.json'
+        if trade_file.exists():
+            try:
+                with open(trade_file, 'r') as f:
+                    data = json.load(f)
+                    self.logger.info(f"Loaded {len(data)} existing trades from previous deployments")
+                    return data
+            except Exception as e:
+                self.logger.warning(f"Could not load existing trade history: {e}")
+        return []
+    
+    def _load_existing_portfolio(self):
+        """Load existing portfolio history from previous deployments"""
+        portfolio_file = self.logs_dir / 'portfolio_history.json'
+        if portfolio_file.exists():
+            try:
+                with open(portfolio_file, 'r') as f:
+                    data = json.load(f)
+                    self.logger.info(f"Loaded {len(data)} existing portfolio records from previous deployments")
+                    return data
+            except Exception as e:
+                self.logger.warning(f"Could not load existing portfolio history: {e}")
+        return []
     
     def log_trade(self, trade_data: Dict):
         """Log trade execution"""
