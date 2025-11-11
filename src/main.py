@@ -215,6 +215,21 @@ class TradingBot:
             import traceback
             traceback.print_exc()
     
+    def get_pair_precision(self, pair: str) -> dict:
+        """
+        Get precision settings for a specific trading pair.
+        Returns: {'amount': int, 'price': int, 'min_order': float}
+        
+        Based on Roostoo API specs:
+        - BTC/USD: AmountPrecision=5, PricePrecision=2, MiniOrder=1
+        - ETH/USD: AmountPrecision=4, PricePrecision=2, MiniOrder=1
+        """
+        precision_map = {
+            'BTC/USD': {'amount': 5, 'price': 2, 'min_order': 1.0},
+            'ETH/USD': {'amount': 4, 'price': 2, 'min_order': 1.0},
+        }
+        return precision_map.get(pair, {'amount': 5, 'price': 2, 'min_order': 1.0})
+    
     def get_portfolio_value(self, balance_data: Dict, current_prices: Dict) -> float:
         """Calculate total portfolio value"""
         try:
@@ -346,6 +361,9 @@ class TradingBot:
             base_currency = symbol.split('/')[0]  # BTC or ETH
             quote_currency = symbol.split('/')[1]  # USD
             
+            # Get pair-specific precision settings
+            precision = self.get_pair_precision(pair)
+            
             if decision.action == Action.BUY:
                 # Perform crypto-specific risk checks for BUY orders
                 if not self.crypto_risk_checks(decision.price, balance_data, pair):
@@ -360,8 +378,8 @@ class TradingBot:
                     self.logger.logger.info(f"[{pair}] Trade amount too small (${quantity * decision.price:.2f} < ${self.MIN_TRADE_VALUE}), skipping")
                     return
                 
-                # Ensure quantity meets minimum precision (5 decimal places)
-                quantity = round(quantity, 5)
+                # Ensure quantity meets pair-specific precision (BTC=5, ETH=4 decimals)
+                quantity = round(quantity, precision['amount'])
                 
                 # Execute buy
                 result = self.roostoo.place_order(
@@ -401,8 +419,8 @@ class TradingBot:
                     self.logger.logger.info(f"[{pair}] Trade amount too small (${quantity * decision.price:.2f} < ${self.MIN_TRADE_VALUE}), skipping")
                     return
                 
-                # Ensure quantity meets minimum precision (5 decimal places)
-                quantity = round(quantity, 5)
+                # Ensure quantity meets pair-specific precision (BTC=5, ETH=4 decimals)
+                quantity = round(quantity, precision['amount'])
                 
                 # Execute sell
                 result = self.roostoo.place_order(
@@ -444,10 +462,13 @@ class TradingBot:
             base_currency = symbol.split('/')[0]  # BTC or ETH
             quote_currency = symbol.split('/')[1]  # USD
             
+            # Get pair-specific precision settings
+            precision = self.get_pair_precision(pair)
+            
             # Calculate quantity for $1.14 trade (meme amount)
             trade_value = 1.14  # $1.14 USD
             quantity = trade_value / current_price
-            quantity = round(quantity, 5)  # Round to 5 decimal places
+            quantity = round(quantity, precision['amount'])  # Use pair-specific precision
             
             # Verify we have enough balance
             available_cash = balance_data.get(quote_currency, {}).get('free', 0)
