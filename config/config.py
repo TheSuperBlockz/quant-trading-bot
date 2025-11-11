@@ -22,7 +22,10 @@ class Config:
         
         # ==================== Trading Basic Configuration ====================
         self.INITIAL_CASH = 10000              # Initial capital
-        self.TRADE_PAIR = "BTC/USD"            # Trading pair
+        
+        # Multi-pair support (BTC and ETH)
+        self.SUPPORTED_PAIRS = ["BTC/USD", "ETH/USD"]  # Pairs to trade
+        self.TRADE_PAIR = "BTC/USD"            # Default trading pair (for backward compatibility)
         self.BASE_CURRENCY = "BTC"             # Base currency
         self.QUOTE_CURRENCY = "USD"            # Quote currency
         
