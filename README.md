@@ -2,6 +2,12 @@
 
 An automated trading bot using MACD (Moving Average Convergence Divergence) strategy for cryptocurrency trading on the Roostoo platform.
 
+## Strategy Summary
+
+The bot calculates MACD using standard parameters (12-period fast EMA, 26-period slow EMA, 9-period signal line). A buy signal is triggered when the MACD line crosses above the signal line, indicating bullish momentum. A sell signal occurs when it crosses below, suggesting bearish momentum.
+
+Risk management is built-in with a 3% take-profit and 3% stop-loss to lock in gains and limit losses. A 1.5% trailing stop protects profits by automatically adjusting as prices rise. To prevent overtrading, a 1-hour cooldown is enforced between same-direction trades.
+
 ## Quick Start Guide
 
 ### Prerequisites
